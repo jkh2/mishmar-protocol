@@ -1,6 +1,6 @@
 # Mishmar Protocol
 
-!(image1.png)
+![Mishmar Protocol](image1.png)
 
 **מִשְׁמָר** — *the watch; the guard post.*
 A 2D defense game about powerless machines and a finite amount of power. You protect a
