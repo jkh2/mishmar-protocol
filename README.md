@@ -3,6 +3,7 @@
 ![Mishmar Protocol](image1.png)
 
 **מִשְׁמָר** — *the watch; the guard post.*
+
 A 2D defense game about powerless machines and a finite amount of power.
 You protect a dark-gold pyramid bearing an illuminated Bet  — the House — from drones descending
 from the top of the screen. Your defenders start dim, inert, and useless. Everything you do
