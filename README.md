@@ -1,7 +1,8 @@
 # Mishmar Protocol
 
-**מִשְׁמָר** — *the watch; the guard post.*
+![Mishmar Protocol](image1.png)
 
+**מִשְׁמָר** — *the watch; the guard post.*
 A 2D defense game about powerless machines and a finite amount of power. You protect a
 dark-gold pyramid bearing an illuminated Bet (**בּ**) — the House — from drones descending
 from the top of the screen. Your defenders start dim, inert, and useless. Everything you do
@@ -13,6 +14,8 @@ with no economy. It is one self-contained HTML file with no build step and no de
 ---
 
 ## Play it
+
+### ▶ [TRY DEMO HERE](https://jameskeithharwood.com/mishmar-protocol)
 
 Open `mishmar-protocol-prototype.html` in any modern browser. That's the whole install.
 
