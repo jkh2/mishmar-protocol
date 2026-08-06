@@ -813,8 +813,11 @@ function updateDrones(dt){
     if (d.charge > 0){
       d.charge = Math.max(0, d.charge - D.drainPerSec*dt);
       if (d.charge < 0.01) d.charge = 0;     // below the lowest stage it's dead, not dying
-      if (d.charge === 0 && d.mode === "patrol") d.mode = "wander";
     }
+    // Keep this transition outside the decay branch. A shot or enemy contact
+    // can spend the last charge later in a frame; on the next step, every dim
+    // patrol unit must re-enter wander so the pointer can gather it again.
+    if (d.charge === 0 && d.mode === "patrol") d.mode = "wander";
 
     // ---- movement by mode
     if (d.mode === "wander"){
