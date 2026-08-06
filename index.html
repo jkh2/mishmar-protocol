@@ -131,6 +131,15 @@ const CFG = {
 
   pyramid: { health:100, halfBase:92, height:126 },
 
+  // A breach should not read the same everywhere it lands. The pyramid is the
+  // lose condition — its hits carry weight. A battery is recoverable — its
+  // hits read as a jolt, not a tremor.
+  impact: {
+    battery: { particles:14, shake:7, col:[196,214,244] },   // cool steel-white — an electrical short, not fire
+    pyramid: { particles:34, shake:17, col:[255,178,92],     // hot gold-ember — matches the structure it's tearing into
+               shockRadius:96, shockGrowth:210, shockLife:0.46 },
+  },
+
   enemy: {
     scout: { hp:3, speed:58, radius:9, structureDamage:8, contactDrain:0.22 },
   },
@@ -268,7 +277,7 @@ function newGame(){
   G = {
     t:0, over:false, won:false, paused:false, shake:0,
     pointer:{ x:W/2, y:GY-160, px:W/2, py:GY-160, vx:0, vy:0, charge:0, inside:false, held:false },
-    drones:[], bullets:[], enemies:[], sparks:[],
+    drones:[], bullets:[], enemies:[], sparks:[], shocks:[],
     batteries:[
       { x:196, y:GY-16, hp:CFG.battery.health, cool:0 },
       { x:764, y:GY-16, hp:CFG.battery.health, cool:0 },
@@ -419,6 +428,26 @@ function burst(x,y,n,col){
   }
 }
 
+// An expanding, fading ring — reserved for the pyramid so its hits read as
+// structural, not just another spark burst. Never used for batteries.
+function shock(x,y,radius,life,col){
+  if (reduceMotion) return;   // a ring is pure flourish; sparks alone still read the hit
+  G.shocks.push({ x, y, r:8, max:radius, life, maxLife:life, col });
+}
+
+// A breach reads differently depending on what it hit. Battery: a quick,
+// cool jolt — the bank is recoverable, so the feedback should feel like a
+// shock, not a wound. Pyramid: bigger, hotter, and rings outward — this is
+// the structure that ends the run, and it should be unmistakable which
+// target just took the damage without reading the HUD.
+function impactAt(structure, x, y){
+  const onPyramid = structure === G.pyramid;
+  const cfg = onPyramid ? CFG.impact.pyramid : CFG.impact.battery;
+  burst(x, y, cfg.particles, cfg.col);
+  G.shake = reduceMotion ? 0 : cfg.shake;
+  if (onPyramid) shock(x, y, cfg.shockRadius, cfg.shockLife, cfg.col);
+}
+
 /* ═══════════════════════════════════════════════════════════
    Simulation — fixed timestep
    ═══════════════════════════════════════════════════════════ */
@@ -453,6 +482,11 @@ function step(dt){
     const s = G.sparks[i];
     s.x += s.vx*dt; s.y += s.vy*dt; s.vy += 240*dt; s.life -= dt;
     if (s.life <= 0) G.sparks.splice(i,1);
+  }
+  for (let i=G.shocks.length-1;i>=0;i--){
+    const sh = G.shocks[i];
+    sh.r += CFG.impact.pyramid.shockGrowth*dt; sh.life -= dt;
+    if (sh.life <= 0 || sh.r >= sh.max) G.shocks.splice(i,1);
   }
   G.shake = Math.max(0, G.shake - dt*22);
 
@@ -634,12 +668,12 @@ function updateEnemies(dt){
       }
     }
 
-    // breach
+    // breach — the impact itself now tells you which structure just took the hit
     if (len < 26){
       e.target.hp = Math.max(0, e.target.hp - E.structureDamage);
-      burst(e.x, e.y, 20, [255,110,90]);
-      G.shake = reduceMotion ? 0 : 11;
-      playSfx("powerDown", 0.66, 0.68, 0.10);
+      impactAt(e.target, e.x, e.y);
+      const onPyramid = e.target === G.pyramid;
+      playSfx("powerDown", onPyramid ? 0.78 : 0.58, onPyramid ? 0.56 : 0.82, 0.10);
       e.dead = true;
     }
   }
@@ -699,6 +733,16 @@ function draw(){
     ctx.globalAlpha = clamp(s.life/s.max,0,1);
     ctx.fillStyle = `rgb(${s.col[0]},${s.col[1]},${s.col[2]})`;
     ctx.fillRect(s.x-1.5, s.y-1.5, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+
+  // shockwaves — pyramid hits only, a ring outrunning and outlasting its sparks
+  for (const sh of G.shocks){
+    const fade = clamp(sh.life/sh.maxLife, 0, 1);
+    ctx.globalAlpha = fade * 0.55;
+    ctx.strokeStyle = `rgb(${sh.col[0]},${sh.col[1]},${sh.col[2]})`;
+    ctx.lineWidth = 2.2 * fade + 0.4;
+    ctx.beginPath(); ctx.arc(sh.x, sh.y, sh.r, 0, 6.2832); ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
