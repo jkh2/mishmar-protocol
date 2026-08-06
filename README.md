@@ -11,7 +11,8 @@ from the top of the screen. Your defenders start dim, inert, and useless. Everyt
 is about getting power into them, deciding how to divide it, and choosing where it goes.
 
 This repository currently holds a **playable vertical slice**: the movement and combat loop,
-with no economy. It is one self-contained HTML file with no build step and no dependencies.
+with no economy. It is a static HTML game with a small CC0 asset folder, no build step, and
+no code dependencies.
 
 ---
 
@@ -38,6 +39,7 @@ energy survived the trip is split among however many drones you're still holding
 | **Release** | Sets them down. They light up and patrol that sector on their own |
 | **Space** | Pause |
 | **R** | Restart |
+| **M** | Mute or restore sound effects |
 
 ### The rule that matters
 
@@ -174,7 +176,11 @@ Honest ones, still unanswered:
 
 ## Art
 
-The star field, defender body, and scout body are adapted at runtime from Kenney's
+The star field, defender body, scout body, and sound effects are adapted at runtime from Kenney's
 [Space Shooter Redux](https://opengameart.org/content/space-shooter-redux) asset pack.
 The source assets are released under CC0 1.0; attribution is not required, but we credit
 Kenney with gratitude. The original license is preserved in `assets/kenney/LICENSE.txt`.
+
+Sound begins only after the first player gesture, in accordance with browser autoplay rules.
+Rapid combat sounds use small voice pools plus event throttling so a large squad reads as
+coordinated fire rather than clipping noise. Mute preference is preserved locally.

@@ -67,7 +67,7 @@
     <div><b>Press and hold</b> — commit the squad, stop gathering</div>
     <div><b>Drag</b> — carry them, energy burning the whole way</div>
     <div><b>Release</b> — set them down to patrol that sector</div>
-    <div><b>Space</b> — pause · <b>R</b> — restart</div>
+    <div><b>Space</b> — pause · <b>R</b> — restart · <b>M</b> — mute</div>
   </div>
 
   <p class="note">Timer and budget are the same variable. The ring on the pointer is the packet burning down, and the
@@ -199,6 +199,57 @@ ART.scout.addEventListener("load", () => {
     "grayscale(0.6) sepia(0.35) saturate(2.4) hue-rotate(305deg) brightness(0.9)");
 });
 
+/* Sound — small pooled voices prevent dense squads from clipping or cutting
+   one another off. Playback begins only after a player gesture, as browsers require. */
+const SFX = {
+  master: 0.32,
+  muted: false,
+  voices: {},
+  cursor: {},
+  last: {},
+};
+const SFX_FILES = {
+  shot:       "assets/kenney/audio/sfx_laser1.ogg",
+  intercept:  "assets/kenney/audio/sfx_laser2.ogg",
+  lose:       "assets/kenney/audio/sfx_lose.ogg",
+  powerDown:  "assets/kenney/audio/sfx_shieldDown.ogg",
+  powerUp:    "assets/kenney/audio/sfx_shieldUp.ogg",
+  confirm:    "assets/kenney/audio/sfx_twoTone.ogg",
+  zap:        "assets/kenney/audio/sfx_zap.ogg",
+};
+
+for (const [name, src] of Object.entries(SFX_FILES)){
+  const count = name === "shot" || name === "zap" ? 6 : 3;
+  SFX.voices[name] = Array.from({length:count}, () => {
+    const audio = new Audio(src);
+    audio.preload = "auto";
+    return audio;
+  });
+  SFX.cursor[name] = 0;
+}
+try { SFX.muted = localStorage.getItem("mishmar-muted") === "1"; } catch(_){}
+
+function playSfx(name, volume=1, rate=1, minGap=0){
+  if (SFX.muted || !SFX.voices[name]) return;
+  const now = performance.now();
+  if (now - (SFX.last[name] || 0) < minGap*1000) return;
+  SFX.last[name] = now;
+  const pool = SFX.voices[name];
+  const index = SFX.cursor[name]++ % pool.length;
+  const voice = pool[index];
+  voice.pause();
+  voice.currentTime = 0;
+  voice.volume = clamp(SFX.master*volume, 0, 1);
+  voice.playbackRate = clamp(rate, 0.55, 1.65);
+  voice.play().catch(() => {}); // autoplay denial is harmless; the next gesture unlocks it
+}
+
+function toggleMute(){
+  SFX.muted = !SFX.muted;
+  try { localStorage.setItem("mishmar-muted", SFX.muted ? "1" : "0"); } catch(_){}
+  if (!SFX.muted) playSfx("confirm", 0.34, 1.15);
+}
+
 const rand  = (a,b) => a + Math.random()*(b-a);
 const clamp = (v,a,b) => v<a?a:v>b?b:v;
 const dist2 = (ax,ay,bx,by) => { const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; };
@@ -293,13 +344,17 @@ cv.addEventListener("pointerdown", e => {
       const wear = 1 + CFG.battery.damagedPenalty * (1 - b.hp/CFG.battery.health);
       b.cool = CFG.battery.cooldown * wear;
       burst(b.x, b.y, 16, [255,226,150]);
+      playSfx("powerUp", 0.55, 0.88);
       return;
     }
   }
 
   // 2) otherwise: press = "this is my squad". Gathering stops, the carry begins.
   //    Energy keeps burning the whole way, so distance costs power.
-  if (p.charge > 0 && G.drones.some(d => d.mode === "swarm")) p.held = true;
+  if (p.charge > 0 && G.drones.some(d => d.mode === "swarm")){
+    p.held = true;
+    playSfx("confirm", 0.28, 0.88);
+  }
 });
 
 cv.addEventListener("pointerup",     () => release());
@@ -308,6 +363,7 @@ cv.addEventListener("pointercancel", () => release());
 window.addEventListener("keydown", e => {
   if (e.code === "Space"){ e.preventDefault(); G.paused = !G.paused; }
   if (e.code === "KeyR"){ ERR = null; acc = 0; last = performance.now(); newGame(); }
+  if (e.code === "KeyM") toggleMute();
 });
 
 function dropSwarm(){
@@ -322,6 +378,7 @@ function dropSwarm(){
     burst(d.x, d.y, 3, [120,138,175]);
   }
   G.pointer.held = false;
+  playSfx("powerDown", 0.46, 0.78);
 }
 
 function release(){
@@ -348,6 +405,7 @@ function release(){
   }
   p.charge = 0;
   G.shake = reduceMotion ? 0 : 5;
+  playSfx("zap", 0.58, 0.72 + Math.min(squad.length,12)*0.025);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -373,14 +431,18 @@ function step(dt){
   P.vx = (P.x - P.px)/dt; P.vy = (P.y - P.py)/dt;
   P.px = P.x; P.py = P.y;
 
-  // the packet burns down in your hand — and when it's gone, so is your grip
+  // The packet burns down in your hand — and when it is gone, so is your grip.
   if (P.charge > 0){
     P.charge = Math.max(0, P.charge - dt / CFG.pointer.burnSeconds);
     if (P.charge === 0) dropSwarm();
   }
 
   // batteries recharge
-  for (const b of G.batteries) if (b.cool > 0) b.cool = Math.max(0, b.cool - dt);
+  for (const b of G.batteries){
+    if (b.cool <= 0) continue;
+    b.cool = Math.max(0, b.cool - dt);
+    if (b.cool === 0 && b.hp > 0) playSfx("confirm", 0.18, 1.28, 0.15);
+  }
 
   updateWaves(dt);
   updateDrones(dt);
@@ -394,7 +456,10 @@ function step(dt){
   }
   G.shake = Math.max(0, G.shake - dt*22);
 
-  if (G.pyramid.hp <= 0){ G.over = true; }
+  if (G.pyramid.hp <= 0){
+    G.over = true;
+    playSfx("lose", 0.72, 0.84);
+  }
 }
 
 function updateWaves(dt){
@@ -412,6 +477,7 @@ function updateWaves(dt){
                         * lerp(CFG.wave.easeSpawn, 1));
       G.spawnTimer = 0;
       G.inWave = true;
+      playSfx("confirm", 0.22, 0.72 + Math.min(G.wave,8)*0.035);
     }
     return;
   }
@@ -425,6 +491,7 @@ function updateWaves(dt){
   } else if (G.enemies.length === 0){
     G.inWave = false;
     G.interlude = CFG.wave.interlude;
+    playSfx("powerUp", 0.24, 1.24);
     // the pyramid puts three more on the field — they arrive dormant like everything else
     for (let i=0;i<CFG.wave.dronesPerWave;i++){
       const x = G.pyramid.x + rand(-70,70);
@@ -479,7 +546,10 @@ function updateDrones(dt){
       }
       d.x += d.vx*dt; d.y += d.vy*dt;
       // capture requires ARRIVAL, not pointer overlap — teleporting the mouse doesn't skip the bend
-      if (len < CFG.pointer.captureRadius){ d.mode = "swarm"; d.orbit = rand(0,6.28); }
+      if (len < CFG.pointer.captureRadius){
+        d.mode = "swarm"; d.orbit = rand(0,6.28);
+        playSfx("confirm", 0.12, rand(1.05,1.34), 0.045);
+      }
       if (!P.inside || len > CFG.pointer.magnetRadius*1.6) d.mode = "wander";
     }
     else if (d.mode === "swarm"){
@@ -522,6 +592,7 @@ function updateDrones(dt){
         });
         d.cd = 1/D.fireRate;
         d.charge = Math.max(0, d.charge - D.drainPerShot);
+        playSfx("shot", 0.20, rand(0.90,1.10), 0.045);
       }
     }
   }
@@ -533,6 +604,7 @@ function updateEnemies(dt){
     const e = G.enemies[i];
     if (e.dead || e.hp <= 0){
       burst(e.x,e.y,10,[255,120,110]);
+      playSfx("intercept", 0.42, rand(0.78,0.96), 0.055);
       G.enemies.splice(i,1);
       continue;
     }
@@ -567,6 +639,7 @@ function updateEnemies(dt){
       e.target.hp = Math.max(0, e.target.hp - E.structureDamage);
       burst(e.x, e.y, 20, [255,110,90]);
       G.shake = reduceMotion ? 0 : 11;
+      playSfx("powerDown", 0.66, 0.68, 0.10);
       e.dead = true;
     }
   }
@@ -582,6 +655,7 @@ function updateBullets(dt){
       if (dist2(b.x,b.y,e.x,e.y) < (CFG.enemy.scout.radius+3)**2){
         e.hp -= b.dmg; hit = true;
         burst(b.x,b.y,2,b.col);
+        playSfx("zap", 0.12, rand(1.18,1.42), 0.04);
         break;
       }
     }
