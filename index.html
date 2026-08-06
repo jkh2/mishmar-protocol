@@ -143,6 +143,13 @@ const CFG = {
                sfxVolume:0.78, sfxRate:0.56 },
   },
 
+  sound: {
+    // One continuous synthesized tone makes the packet's remaining lifetime
+    // audible. Exponential pitch mapping preserves musical intervals as it falls.
+    chargeTone: { minHz:135, maxHz:620, gain:0.11,
+                  attack:0.035, release:0.08, glide:0.025 },
+  },
+
   enemy: {
     scout: { hp:3, speed:58, radius:9, structureDamage:8, contactDrain:0.22,
              batteryTargetChance:0.45 },
@@ -220,6 +227,8 @@ const SFX = {
   voices: {},
   cursor: {},
   last: {},
+  context: null,
+  chargeTone: null,
 };
 const SFX_FILES = {
   shot:       "assets/kenney/audio/sfx_laser1.ogg",
@@ -257,10 +266,75 @@ function playSfx(name, volume=1, rate=1, minGap=0){
   voice.play().catch(() => {}); // autoplay denial is harmless; the next gesture unlocks it
 }
 
+function getAudioContext(){
+  if (!SFX.context){
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    SFX.context = new AudioContextClass();
+  }
+  if (SFX.context.state === "suspended") SFX.context.resume().catch(() => {});
+  return SFX.context;
+}
+
+function chargeToneHz(charge){
+  const cfg = CFG.sound.chargeTone;
+  return cfg.minHz * Math.pow(cfg.maxHz/cfg.minHz, clamp(charge,0,1));
+}
+
+function updateChargeTone(){
+  const tone = SFX.chargeTone;
+  if (!tone) return;
+  if (SFX.muted || G.over || G.paused || G.pointer.charge <= 0){
+    stopChargeTone();
+    return;
+  }
+  const now = tone.context.currentTime;
+  tone.osc.frequency.setTargetAtTime(
+    chargeToneHz(G.pointer.charge), now, CFG.sound.chargeTone.glide
+  );
+}
+
+function startChargeTone(){
+  if (SFX.muted || G.over || G.paused || G.pointer.charge <= 0) return;
+  const context = getAudioContext();
+  if (!context) return;
+  if (SFX.chargeTone){ updateChargeTone(); return; }
+
+  const cfg = CFG.sound.chargeTone;
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  const now = context.currentTime;
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(chargeToneHz(G.pointer.charge), now);
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(SFX.master*cfg.gain, now+cfg.attack);
+  osc.connect(gain); gain.connect(context.destination);
+  osc.addEventListener("ended", () => {
+    try { osc.disconnect(); gain.disconnect(); } catch(_){}
+  }, { once:true });
+  osc.start(now);
+  SFX.chargeTone = { context, osc, gain };
+}
+
+function stopChargeTone(){
+  const tone = SFX.chargeTone;
+  if (!tone) return;
+  SFX.chargeTone = null;
+  const now = tone.context.currentTime;
+  const release = CFG.sound.chargeTone.release;
+  tone.gain.gain.cancelScheduledValues(now);
+  tone.gain.gain.setTargetAtTime(0, now, Math.max(0.005,release/3));
+  try { tone.osc.stop(now+release); } catch(_){}
+}
+
 function toggleMute(){
   SFX.muted = !SFX.muted;
   try { localStorage.setItem("mishmar-muted", SFX.muted ? "1" : "0"); } catch(_){}
-  if (!SFX.muted) playSfx("confirm", 0.34, 1.15);
+  if (SFX.muted) stopChargeTone();
+  else {
+    playSfx("confirm", 0.34, 1.15);
+    startChargeTone();
+  }
 }
 
 const rand  = (a,b) => a + Math.random()*(b-a);
@@ -278,6 +352,7 @@ function stageOf(charge){
 let G;
 
 function newGame(){
+  stopChargeTone();
   G = {
     t:0, over:false, won:false, paused:false, shake:0,
     pointer:{ x:W/2, y:GY-160, px:W/2, py:GY-160, vx:0, vy:0, charge:0, inside:false, held:false },
@@ -359,7 +434,8 @@ cv.addEventListener("pointerdown", e => {
       const wear = 1 + CFG.battery.damagedPenalty * (1 - b.hp/CFG.battery.health);
       b.cool = CFG.battery.cooldown * wear;
       burst(b.x, b.y, 16, [255,226,150]);
-      playSfx("powerUp", 0.55, 0.88);
+      playSfx("powerUp", 0.62, 1.04);
+      startChargeTone();
       return;
     }
   }
@@ -376,7 +452,10 @@ cv.addEventListener("pointerup",     () => release());
 cv.addEventListener("pointercancel", () => release());
 
 window.addEventListener("keydown", e => {
-  if (e.code === "Space"){ e.preventDefault(); G.paused = !G.paused; }
+  if (e.code === "Space"){
+    e.preventDefault(); G.paused = !G.paused;
+    if (G.paused) stopChargeTone(); else startChargeTone();
+  }
   if (e.code === "KeyR"){ ERR = null; acc = 0; last = performance.now(); newGame(); }
   if (e.code === "KeyM") toggleMute();
 });
@@ -393,6 +472,7 @@ function dropSwarm(){
     burst(d.x, d.y, 3, [120,138,175]);
   }
   G.pointer.held = false;
+  stopChargeTone();
   playSfx("powerDown", 0.46, 0.78);
 }
 
@@ -419,6 +499,7 @@ function release(){
     burst(d.x, d.y, 5, [255,243,207]);
   }
   p.charge = 0;
+  stopChargeTone();
   G.shake = reduceMotion ? 0 : 5;
   playSfx("zap", 0.58, 0.72 + Math.min(squad.length,12)*0.025);
 }
@@ -1122,6 +1203,7 @@ let ERR = null;               // first fault, held for diagnosis
 
 function fault(where, e){
   if (ERR) return;
+  stopChargeTone();
   const lines = (e && e.stack ? e.stack.split("\n") : [String(e)]);
   ERR = { where, msg: (e && e.message) || String(e), at: (lines[1]||"").trim() };
   console.error("[mishmar] fault in " + where, e);
@@ -1138,6 +1220,7 @@ function frame(now){
   } catch(e){ fault("step", e); }
 
   try { draw(); } catch(e){ fault("draw", e); }
+  updateChargeTone();
 
   if (ERR){
     try {
@@ -1160,6 +1243,9 @@ function frame(now){
 }
 
 window.addEventListener("error", e => fault("window", e.error || e));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopChargeTone(); else startChargeTone();
+});
 newGame();
 requestAnimationFrame(frame);
 })();
