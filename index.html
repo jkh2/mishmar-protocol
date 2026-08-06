@@ -441,6 +441,52 @@ const rand  = (a,b) => a + Math.random()*(b-a);
 const clamp = (v,a,b) => v<a?a:v>b?b:v;
 const dist2 = (ax,ay,bx,by) => { const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; };
 
+// Scenery is generated once from a fixed seed. The sky can twinkle, but the
+// stars, ridgelines, rocks, and craters must not crawl or flicker frame to frame.
+function sceneRandom(seed){
+  return () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+const SCENE = (() => {
+  const random = sceneRandom(0x4d495348); // "MISH"
+  const stars = Array.from({length:150}, () => {
+    const depth = random();
+    return {
+      x:random()*W, y:8+random()*(GY-70), depth,
+      r:0.35+depth*1.05, alpha:0.28+depth*0.58,
+      phase:random()*Math.PI*2, twinkle:0.35+random()*1.1,
+      warm:random() > 0.84,
+    };
+  });
+  const ridge = (step, baseY, minLift, maxLift) => {
+    const points = [];
+    for (let x=-step;x<=W+step;x+=step){
+      const lift = minLift + random()*(maxLift-minLift);
+      points.push([x, baseY-lift]);
+    }
+    return points;
+  };
+  const craters = Array.from({length:8}, () => ({
+    x:35+random()*(W-70), y:GY+20+random()*(H-GY-28),
+    rx:12+random()*30, ry:3+random()*7,
+  }));
+  const rocks = Array.from({length:22}, () => ({
+    x:20+random()*(W-40), y:GY+9+random()*(H-GY-14),
+    r:1.5+random()*4.5, lean:(random()-0.5)*4,
+  }));
+  return {
+    stars,
+    farRidge:ridge(38,GY+13,32,88),
+    nearRidge:ridge(30,GY+10,12,48),
+    craters, rocks,
+  };
+})();
+
 function stageOf(charge){
   for (const s of CFG.stages) if (charge >= s.min) return s;
   return CFG.stages[CFG.stages.length-1];   // never null: anything above zero is at least the faintest stage
@@ -918,24 +964,7 @@ function draw(){
     ctx.translate(rand(-G.shake,G.shake), rand(-G.shake,G.shake));
   }
 
-  // sky
-  const sky = ctx.createLinearGradient(0,0,0,H);
-  sky.addColorStop(0,"#070b18"); sky.addColorStop(0.7,"#0d1428"); sky.addColorStop(1,"#151d38");
-  ctx.fillStyle = sky; ctx.fillRect(-20,-20,W+40,H+40);
-
-  // A very quiet moving star layer adds depth without competing with charge
-  // brightness, which must remain the strongest visual signal on the field.
-  if (ART.skyPattern){
-    const driftX = reduceMotion ? 0 : (G.t*1.8)%256;
-    const driftY = reduceMotion ? 0 : (G.t*0.45)%256;
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.translate(driftX, driftY);
-    ctx.fillStyle = ART.skyPattern;
-    ctx.fillRect(-256-driftX, -256-driftY, W+512, H+512);
-    ctx.restore();
-  }
-
+  drawSpaceSky();
   drawGround();
   drawPyramid();
   for (const b of G.batteries) drawBattery(b);
@@ -993,11 +1022,171 @@ function draw(){
   drawHUD();
 }
 
+function drawRidge(points, fill, rim){
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], H);
+  for (const p of points) ctx.lineTo(p[0],p[1]);
+  ctx.lineTo(points[points.length-1][0],H);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(points[0][0],points[0][1]);
+  for (let i=1;i<points.length;i++) ctx.lineTo(points[i][0],points[i][1]);
+  ctx.strokeStyle = rim; ctx.lineWidth=1; ctx.stroke();
+}
+
+function drawPlanet(){
+  const x=782, y=168, r=61;
+  ctx.save();
+  ctx.translate(x,y); ctx.rotate(-0.16);
+
+  // Back half of a thin ring, then the globe, then the near ring edge.
+  ctx.strokeStyle = "rgba(154,180,224,0.16)";
+  ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.ellipse(0,0,r*1.72,r*0.34,0,Math.PI,Math.PI*2); ctx.stroke();
+
+  const halo = ctx.createRadialGradient(-10,-9,r*0.7,0,0,r*1.42);
+  halo.addColorStop(0,"rgba(109,151,214,0.05)");
+  halo.addColorStop(0.7,"rgba(85,112,178,0.10)");
+  halo.addColorStop(1,"rgba(66,88,155,0)");
+  ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(0,0,r*1.42,0,6.2832); ctx.fill();
+
+  ctx.save();
+  ctx.beginPath(); ctx.arc(0,0,r,0,6.2832); ctx.clip();
+  const globe = ctx.createRadialGradient(-24,-25,4,5,7,r*1.18);
+  globe.addColorStop(0,"#7085b0");
+  globe.addColorStop(0.38,"#3f527f");
+  globe.addColorStop(0.72,"#222d50");
+  globe.addColorStop(1,"#0c1227");
+  ctx.fillStyle=globe; ctx.fillRect(-r,-r,r*2,r*2);
+  ctx.globalAlpha=0.24;
+  ctx.strokeStyle="#b7c6df"; ctx.lineWidth=5;
+  for (const by of [-27,-7,16,34]){
+    ctx.beginPath(); ctx.ellipse(-4,by,r*1.08,8,0,0,6.2832); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.strokeStyle="rgba(173,194,230,0.34)"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(0,0,r,0,6.2832); ctx.stroke();
+  ctx.strokeStyle="rgba(180,199,231,0.25)"; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.ellipse(0,0,r*1.72,r*0.34,0,0,Math.PI); ctx.stroke();
+  ctx.restore();
+}
+
+function drawSpaceSky(){
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,"#030713");
+  sky.addColorStop(0.52,"#0a1128");
+  sky.addColorStop(0.82,"#151b38");
+  sky.addColorStop(1,"#241c3b");
+  ctx.fillStyle=sky; ctx.fillRect(-20,-20,W+40,H+40);
+
+  // Broad, translucent clouds imply a nebula without becoming a combat layer.
+  ctx.save(); ctx.globalCompositeOperation="screen";
+  const violet = ctx.createRadialGradient(175,205,5,175,205,330);
+  violet.addColorStop(0,"rgba(91,70,150,0.18)");
+  violet.addColorStop(0.42,"rgba(60,55,127,0.09)");
+  violet.addColorStop(1,"rgba(24,31,73,0)");
+  ctx.fillStyle=violet; ctx.fillRect(-160,-125,670,660);
+  const blue = ctx.createRadialGradient(610,355,15,610,355,390);
+  blue.addColorStop(0,"rgba(48,103,151,0.12)");
+  blue.addColorStop(0.5,"rgba(38,66,128,0.07)");
+  blue.addColorStop(1,"rgba(20,26,63,0)");
+  ctx.fillStyle=blue; ctx.fillRect(205,-40,790,760);
+  const houseGlow = ctx.createRadialGradient(W/2,GY-12,8,W/2,GY-12,300);
+  houseGlow.addColorStop(0,"rgba(255,190,76,0.22)");
+  houseGlow.addColorStop(0.28,"rgba(190,114,42,0.09)");
+  houseGlow.addColorStop(1,"rgba(77,51,58,0)");
+  ctx.fillStyle=houseGlow; ctx.fillRect(W/2-310,GY-315,620,330);
+  ctx.restore();
+
+  drawPlanet();
+
+  // The quiet CC0 tile supplies dust; deterministic foreground stars supply
+  // real depth and occasional bright navigational points.
+  if (ART.skyPattern){
+    const driftX = reduceMotion ? 0 : (G.t*1.4)%256;
+    const driftY = reduceMotion ? 0 : (G.t*0.32)%256;
+    ctx.save(); ctx.globalAlpha=0.42; ctx.translate(driftX,driftY);
+    ctx.fillStyle=ART.skyPattern;
+    ctx.fillRect(-256-driftX,-256-driftY,W+512,H+512);
+    ctx.restore();
+  }
+  for (const s of SCENE.stars){
+    const shimmer = reduceMotion ? 1 : 0.82+0.18*Math.sin(G.t*s.twinkle+s.phase);
+    const drift = reduceMotion ? 0 : (G.t*(0.18+s.depth*0.34))%(W+8);
+    const x = (s.x+drift)%(W+8)-4;
+    ctx.globalAlpha=s.alpha*shimmer;
+    ctx.fillStyle=s.warm ? "#fff0c6" : "#d7e5ff";
+    ctx.fillRect(x-s.r/2,s.y-s.r/2,s.r,s.r);
+    if (s.r>1.12){
+      ctx.globalAlpha*=0.38;
+      ctx.fillRect(x-s.r*2,s.y-0.35,s.r*4,0.7);
+      ctx.fillRect(x-0.35,s.y-s.r*2,0.7,s.r*4);
+    }
+  }
+  ctx.globalAlpha=1;
+}
+
 function drawGround(){
-  ctx.fillStyle = "#0a1122";
-  ctx.fillRect(0, GY, W, H-GY);
-  ctx.strokeStyle = "rgba(143,163,200,0.28)";
-  ctx.lineWidth = 1;
+  // Two horizons separate the inhabited platform from the sky and establish
+  // distance without changing the flat gameplay boundary at GY.
+  drawRidge(SCENE.farRidge,"#10172c","rgba(95,111,162,0.22)");
+  drawRidge(SCENE.nearRidge,"#0a1021","rgba(124,121,166,0.18)");
+
+  const earth = ctx.createLinearGradient(0,GY,0,H);
+  earth.addColorStop(0,"#151527");
+  earth.addColorStop(0.48,"#0d1120");
+  earth.addColorStop(1,"#080c17");
+  ctx.fillStyle=earth; ctx.fillRect(0,GY,W,H-GY);
+
+  // Perspective seams make the lower strip read as terrain instead of a HUD
+  // footer. They converge behind the House and remain deliberately faint.
+  ctx.strokeStyle="rgba(130,126,166,0.11)"; ctx.lineWidth=1;
+  for (let x=-80;x<=W+80;x+=80){
+    ctx.beginPath(); ctx.moveTo(W/2+(x-W/2)*0.18,GY); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for (const y of [GY+16,GY+36,GY+59]){
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y+3); ctx.stroke();
+  }
+
+  // Power routes visually connect the two banks to the House. They are only
+  // scenery, but they borrow the reference image's strongest idea: gold energy
+  // should travel through the terrain instead of hovering above an empty strip.
+  const pulse = reduceMotion ? 1 : 0.86+0.14*Math.sin(G.t*2.2);
+  const conduit = points => {
+    ctx.save();
+    ctx.lineJoin="bevel"; ctx.lineCap="square";
+    ctx.beginPath(); ctx.moveTo(points[0][0],points[0][1]);
+    for (let i=1;i<points.length;i++) ctx.lineTo(points[i][0],points[i][1]);
+    ctx.shadowColor="rgba(255,177,48,0.72)"; ctx.shadowBlur=10*pulse;
+    ctx.strokeStyle=`rgba(216,163,58,${0.13*pulse})`; ctx.lineWidth=8; ctx.stroke();
+    ctx.shadowBlur=4*pulse;
+    ctx.strokeStyle=`rgba(255,205,92,${0.48*pulse})`; ctx.lineWidth=1.35; ctx.stroke();
+    ctx.restore();
+  };
+  conduit([[W/2,GY],[W/2,GY+18],[W/2-18,GY+33],[W/2-18,H]]);
+  conduit([[196,GY],[196,GY+11],[292,GY+11],[350,GY+31],[382,H]]);
+  conduit([[764,GY],[764,GY+11],[668,GY+11],[610,GY+31],[578,H]]);
+
+  for (const c of SCENE.craters){
+    ctx.fillStyle="rgba(2,5,12,0.34)";
+    ctx.beginPath(); ctx.ellipse(c.x,c.y,c.rx,c.ry,0,0,6.2832); ctx.fill();
+    ctx.strokeStyle="rgba(111,104,145,0.16)";
+    ctx.beginPath(); ctx.ellipse(c.x,c.y-0.8,c.rx,c.ry,0,Math.PI,Math.PI*2); ctx.stroke();
+  }
+  for (const rock of SCENE.rocks){
+    ctx.fillStyle="rgba(53,53,78,0.72)";
+    ctx.beginPath();
+    ctx.moveTo(rock.x-rock.r,rock.y+rock.r*0.45);
+    ctx.lineTo(rock.x+rock.lean,rock.y-rock.r);
+    ctx.lineTo(rock.x+rock.r,rock.y+rock.r*0.55);
+    ctx.closePath(); ctx.fill();
+  }
+
+  const horizon = ctx.createLinearGradient(0,GY,0,GY+10);
+  horizon.addColorStop(0,"rgba(180,151,199,0.34)");
+  horizon.addColorStop(1,"rgba(92,88,137,0)");
+  ctx.fillStyle=horizon; ctx.fillRect(0,GY,W,10);
+  ctx.strokeStyle="rgba(181,166,205,0.28)"; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(0,GY+0.5); ctx.lineTo(W,GY+0.5); ctx.stroke();
 }
 
