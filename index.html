@@ -135,13 +135,17 @@ const CFG = {
   // lose condition — its hits carry weight. A battery is recoverable — its
   // hits read as a jolt, not a tremor.
   impact: {
-    battery: { particles:14, shake:7, col:[196,214,244] },   // cool steel-white — an electrical short, not fire
+    battery: { particles:14, shake:7, col:[196,214,244],     // cool steel-white — an electrical short, not fire
+               joltBolts:5, joltRadius:46, joltLife:0.18,
+               sfxVolume:0.58, sfxRate:0.82 },
     pyramid: { particles:34, shake:17, col:[255,178,92],     // hot gold-ember — matches the structure it's tearing into
-               shockRadius:96, shockGrowth:210, shockLife:0.46 },
+               shockRadius:96, shockGrowth:210, shockLife:0.46,
+               sfxVolume:0.78, sfxRate:0.56 },
   },
 
   enemy: {
-    scout: { hp:3, speed:58, radius:9, structureDamage:8, contactDrain:0.22 },
+    scout: { hp:3, speed:58, radius:9, structureDamage:8, contactDrain:0.22,
+             batteryTargetChance:0.45 },
   },
 
   wave: {
@@ -277,7 +281,7 @@ function newGame(){
   G = {
     t:0, over:false, won:false, paused:false, shake:0,
     pointer:{ x:W/2, y:GY-160, px:W/2, py:GY-160, vx:0, vy:0, charge:0, inside:false, held:false },
-    drones:[], bullets:[], enemies:[], sparks:[], shocks:[],
+    drones:[], bullets:[], enemies:[], sparks:[], shocks:[], jolts:[],
     batteries:[
       { x:196, y:GY-16, hp:CFG.battery.health, cool:0 },
       { x:764, y:GY-16, hp:CFG.battery.health, cool:0 },
@@ -309,9 +313,11 @@ function makeDrone(x,y){
 
 function makeEnemy(){
   const e = CFG.enemy.scout;
-  // pick a ground target: a living battery, or the pyramid
+  // Battery pressure is a target-class probability, then divides across every
+  // living bank. Losing one bank therefore concentrates (but does not increase)
+  // total battery pressure. If every bank is dead, all pressure shifts home.
   const live = G.batteries.filter(b => b.hp > 0);
-  const tgt = (live.length && Math.random() < 0.45)
+  const tgt = (live.length && Math.random() < e.batteryTargetChance)
     ? live[(Math.random()*live.length)|0]
     : G.pyramid;
   return {
@@ -435,6 +441,24 @@ function shock(x,y,radius,life,col){
   G.shocks.push({ x, y, r:8, max:radius, life, maxLife:life, col });
 }
 
+// A battery fails electrically rather than structurally. Generate the bolt
+// geometry once so the jolt flashes sharply instead of writhing every frame.
+function electricJolt(x,y,count,radius,life,col){
+  if (reduceMotion) count = Math.min(count,2);
+  const bolts = [];
+  for (let i=0;i<count;i++){
+    const a = rand(0,Math.PI*2), reach = rand(radius*0.72,radius);
+    const nx = -Math.sin(a), ny = Math.cos(a);
+    bolts.push([
+      [x,y],
+      [x+Math.cos(a)*reach*0.34+nx*rand(-7,7), y+Math.sin(a)*reach*0.34+ny*rand(-7,7)],
+      [x+Math.cos(a)*reach*0.68+nx*rand(-6,6), y+Math.sin(a)*reach*0.68+ny*rand(-6,6)],
+      [x+Math.cos(a)*reach, y+Math.sin(a)*reach],
+    ]);
+  }
+  G.jolts.push({ x, y, radius, bolts, life, maxLife:life, col });
+}
+
 // A breach reads differently depending on what it hit. Battery: a quick,
 // cool jolt — the bank is recoverable, so the feedback should feel like a
 // shock, not a wound. Pyramid: bigger, hotter, and rings outward — this is
@@ -446,6 +470,8 @@ function impactAt(structure, x, y){
   burst(x, y, cfg.particles, cfg.col);
   G.shake = reduceMotion ? 0 : cfg.shake;
   if (onPyramid) shock(x, y, cfg.shockRadius, cfg.shockLife, cfg.col);
+  else electricJolt(x, y, cfg.joltBolts, cfg.joltRadius, cfg.joltLife, cfg.col);
+  playSfx("powerDown", cfg.sfxVolume, cfg.sfxRate, 0.10);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -487,6 +513,11 @@ function step(dt){
     const sh = G.shocks[i];
     sh.r += CFG.impact.pyramid.shockGrowth*dt; sh.life -= dt;
     if (sh.life <= 0 || sh.r >= sh.max) G.shocks.splice(i,1);
+  }
+  for (let i=G.jolts.length-1;i>=0;i--){
+    const j = G.jolts[i];
+    j.life -= dt;
+    if (j.life <= 0) G.jolts.splice(i,1);
   }
   G.shake = Math.max(0, G.shake - dt*22);
 
@@ -672,8 +703,6 @@ function updateEnemies(dt){
     if (len < 26){
       e.target.hp = Math.max(0, e.target.hp - E.structureDamage);
       impactAt(e.target, e.x, e.y);
-      const onPyramid = e.target === G.pyramid;
-      playSfx("powerDown", onPyramid ? 0.78 : 0.58, onPyramid ? 0.56 : 0.82, 0.10);
       e.dead = true;
     }
   }
@@ -745,6 +774,27 @@ function draw(){
     ctx.beginPath(); ctx.arc(sh.x, sh.y, sh.r, 0, 6.2832); ctx.stroke();
   }
   ctx.globalAlpha = 1;
+
+  // electrical jolts — a compact flash and angular forks, never a warm ring
+  for (const j of G.jolts){
+    const fade = clamp(j.life/j.maxLife, 0, 1);
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const glow = ctx.createRadialGradient(j.x,j.y,0,j.x,j.y,j.radius*0.55);
+    glow.addColorStop(0, `rgba(${j.col[0]},${j.col[1]},${j.col[2]},${0.58*fade})`);
+    glow.addColorStop(1, `rgba(${j.col[0]},${j.col[1]},${j.col[2]},0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(j.x,j.y,j.radius*0.55,0,6.2832); ctx.fill();
+    ctx.globalAlpha = fade*0.95;
+    ctx.strokeStyle = `rgb(${j.col[0]},${j.col[1]},${j.col[2]})`;
+    ctx.lineWidth = 0.8 + 1.8*fade;
+    for (const points of j.bolts){
+      ctx.beginPath(); ctx.moveTo(points[0][0],points[0][1]);
+      for (let i=1;i<points.length;i++) ctx.lineTo(points[i][0],points[i][1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   for (const e of G.enemies) drawEnemy(e);
   for (const b of G.bullets){
