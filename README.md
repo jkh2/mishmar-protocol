@@ -1,11 +1,12 @@
 # Mishmar Protocol
 
+
 ![Mishmar Protocol](image1.png)
 
 **מִשְׁמָר** — *the watch; the guard post.*
 
-A 2D defense game about powerless machines and a finite amount of power.
-You protect a dark-gold pyramid bearing an illuminated Bet  — the House — from drones descending
+A 2D defense game about powerless machines and a finite amount of power. You protect a
+dark-gold pyramid bearing an illuminated Bet (**בּ**) — the House — from drones descending
 from the top of the screen. Your defenders start dim, inert, and useless. Everything you do
 is about getting power into them, deciding how to divide it, and choosing where it goes.
 
@@ -15,8 +16,6 @@ with no economy. It is one self-contained HTML file with no build step and no de
 ---
 
 ## Play it
-
-### ▶ [TRY DEMO HERE](https://jameskeithharwood.com/mishmar-protocol)
 
 Open `mishmar-protocol-prototype.html` in any modern browser. That's the whole install.
 
@@ -62,8 +61,10 @@ It falls every time another drone joins, and it keeps falling while you carry th
 
 - **The packet runs dry mid-carry.** The squad falls dim exactly where you're standing. No
   penalty is applied — you simply have to walk back to a battery and come get them.
-- **Powerless drones can be destroyed.** Enemies never hunt them deliberately, but anything
-  that runs into one kills it. Charged drones only lose charge on contact.
+- **Powerless drones get knocked aside.** They can't be destroyed — the fleet is an asset you
+  keep. Charged drones lose charge on contact instead. The pyramid fabricates three more after
+  every wave, so the fleet grows slowly; what limits you is that one packet split across thirty drones
+  isn't worth splitting.
 - **Batteries take damage.** A damaged battery rebuilds packets more slowly; a destroyed one
   stops entirely. The two banks sit at opposite ends of the ground, so losing one doesn't just
   halve your supply — it doubles your travel.
@@ -95,9 +96,12 @@ doesn't quietly undo one of them.
    left them, engaging what comes near, until they burn out.
 5. **Burnt-out drones stay where they fought.** They go dim, drift, and are collectable again.
    The field ends up recording the history of the battle.
-6. **Difficulty ramps by behavior, not health.** The first three waves are eased on count,
+6. **The fleet is never lost, only unpowered.** Growth is self-limiting: the split rule makes a
+   large fleet useless to charge all at once, so the real decision becomes *which* drones to
+   gather, not how many you own.
+7. **Difficulty ramps by behavior, not health.** The first three waves are eased on count,
    spawn spacing, and descent speed, converging to the normal curve by wave four with no cliff.
-7. **Nothing keys off pointer speed.** An earlier build deployed squads on a fast flick, which
+8. **Nothing keys off pointer speed.** An earlier build deployed squads on a fast flick, which
    fired accidentally because gathering *requires* moving fast. Press-and-drag replaced it.
 
 ---
@@ -109,7 +113,7 @@ Everything is in the `CFG` object at the top of the file. No balance value lives
 | Knob | Current | What it controls |
 |---|---|---|
 | `pointer.energy` | `3.0` | Total charge units in one packet. The whole split model scales from this |
-| `pointer.burnSeconds` | `6.0` | How long a packet survives in your hand. Timer and budget are the same variable |
+| `pointer.burnSeconds` | `12.0` | How long a packet survives in your hand. Timer and budget are the same variable |
 | `pointer.magnetRadius` | `115` | Gathering reach |
 | `pointer.patrolRadius` | `58` | How far a set-down squad drifts from its anchor |
 | `drone.drainPerSec` | `0.052` | Charge lifetime. Full ≈ 19s idle, ≈ 14s firing; quarter ≈ 4.8s |
@@ -118,6 +122,7 @@ Everything is in the `CFG` object at the top of the file. No balance value lives
 | `battery.cooldown` | `2.6` | Seconds to rebuild a packet |
 | `battery.damagedPenalty` | `2.2` | Cooldown multiplier at zero battery health |
 | `wave.easeWaves/easeSpawn/easeSpeed/easeCount` | `3 / 2.3 / 0.60 / 0.55` | The onboarding ramp |
+| `wave.dronesPerWave` | `1` | Replacements the pyramid fabricates after each wave |
 | `startingDrones` | `14` | Drones on the field at the start of a run |
 
 The loop runs a fixed 120 Hz simulation decoupled from rendering, capped at 8 catch-up steps
