@@ -17,6 +17,8 @@ with no economy. It is one self-contained HTML file with no build step and no de
 
 ## Play it
 
+### ▶ [TRY DEMO HERE](https://jameskeithharwood.com/mishmar-protocol)
+
 Open `mishmar-protocol-prototype.html` in any modern browser. That's the whole install.
 
 ### The loop, in one sentence
