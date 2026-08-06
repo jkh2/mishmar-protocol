@@ -162,6 +162,43 @@ const ctx = cv.getContext("2d");
 const W = CFG.world.w, H = CFG.world.h, GY = CFG.world.groundY;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+// CC0 art by Kenney. Every image has a vector fallback below, so the game
+// remains playable even when an asset is still loading or cannot be fetched.
+const loadArt = src => {
+  const image = new Image();
+  image.src = src;
+  return image;
+};
+const ART = {
+  sky:      loadArt("assets/kenney/starfield-black.png"),
+  defender: loadArt("assets/kenney/defender-drone.png"),
+  scout:    loadArt("assets/kenney/enemy-scout.png"),
+  skyPattern: null,
+  defenderDim: null,
+  defenderStages: [],
+  scoutReady: null,
+};
+ART.sky.addEventListener("load", () => { ART.skyPattern = ctx.createPattern(ART.sky, "repeat"); });
+
+function filteredArt(image, filter){
+  const layer = document.createElement("canvas");
+  layer.width = image.naturalWidth; layer.height = image.naturalHeight;
+  const paint = layer.getContext("2d");
+  paint.filter = filter;
+  paint.drawImage(image, 0, 0);
+  return layer;
+}
+ART.defender.addEventListener("load", () => {
+  ART.defenderDim = filteredArt(ART.defender, "grayscale(1) brightness(0.62) contrast(1.15)");
+  ART.defenderStages = [1.30, 1.12, 0.94, 0.76].map(brightness =>
+    filteredArt(ART.defender, `grayscale(1) sepia(1) saturate(2.6) brightness(${brightness})`)
+  );
+});
+ART.scout.addEventListener("load", () => {
+  ART.scoutReady = filteredArt(ART.scout,
+    "grayscale(0.6) sepia(0.35) saturate(2.4) hue-rotate(305deg) brightness(0.9)");
+});
+
 const rand  = (a,b) => a + Math.random()*(b-a);
 const clamp = (v,a,b) => v<a?a:v>b?b:v;
 const dist2 = (ax,ay,bx,by) => { const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; };
@@ -566,6 +603,19 @@ function draw(){
   sky.addColorStop(0,"#070b18"); sky.addColorStop(0.7,"#0d1428"); sky.addColorStop(1,"#151d38");
   ctx.fillStyle = sky; ctx.fillRect(-20,-20,W+40,H+40);
 
+  // A very quiet moving star layer adds depth without competing with charge
+  // brightness, which must remain the strongest visual signal on the field.
+  if (ART.skyPattern){
+    const driftX = reduceMotion ? 0 : (G.t*1.8)%256;
+    const driftY = reduceMotion ? 0 : (G.t*0.45)%256;
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.translate(driftX, driftY);
+    ctx.fillStyle = ART.skyPattern;
+    ctx.fillRect(-256-driftX, -256-driftY, W+512, H+512);
+    ctx.restore();
+  }
+
   drawGround();
   drawPyramid();
   for (const b of G.batteries) drawBattery(b);
@@ -679,12 +729,19 @@ function drawEnemy(e){
   const k = clamp(e.hp/e.maxHp,0,1);
   ctx.save();
   ctx.translate(e.x, e.y);
-  ctx.rotate(Math.sin(G.t*6+e.phase)*0.18);
-  ctx.fillStyle = `rgba(255,95,86,${0.55+0.45*k})`;
-  ctx.beginPath();
-  ctx.moveTo(0, 10); ctx.lineTo(9, -6); ctx.lineTo(0, -2); ctx.lineTo(-9, -6);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = "rgba(255,180,170,0.65)"; ctx.lineWidth=1; ctx.stroke();
+  ctx.rotate(Math.PI + Math.sin(G.t*6+e.phase)*0.12);
+  if (ART.scoutReady){
+    ctx.globalAlpha = 0.78 + 0.22*k;
+    ctx.shadowColor = "rgba(255,95,86,0.9)";
+    ctx.shadowBlur = 7 + 5*(1-k);
+    ctx.drawImage(ART.scoutReady, -14, -11, 28, 22);
+  } else {
+    ctx.fillStyle = `rgba(255,95,86,${0.55+0.45*k})`;
+    ctx.beginPath();
+    ctx.moveTo(0, -10); ctx.lineTo(9, 6); ctx.lineTo(0, 2); ctx.lineTo(-9, 6);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,170,0.65)"; ctx.lineWidth=1; ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -703,20 +760,38 @@ function drawSectors(){
 
 function drawDrone(d){
   const R = CFG.drone.radius;
+  const heading = Math.atan2(d.vy, d.vx) + Math.PI/2;
   if (d.charge <= 0){
-    // powerless: dim, inert, and losable
-    ctx.fillStyle = "rgba(120,138,175,0.42)";
-    ctx.beginPath(); ctx.arc(d.x,d.y,R*0.72,0,6.2832); ctx.fill();
-    ctx.strokeStyle = "rgba(120,138,175,0.22)"; ctx.lineWidth=1; ctx.stroke();
+    // The body remains visible while the core is dark: powerless, not dead.
+    if (ART.defenderDim){
+      ctx.save();
+      ctx.translate(d.x,d.y); ctx.rotate(heading);
+      ctx.globalAlpha = 0.34;
+      ctx.drawImage(ART.defenderDim, -9, -9, 18, 18);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "rgba(120,138,175,0.42)";
+      ctx.beginPath(); ctx.arc(d.x,d.y,R*0.72,0,6.2832); ctx.fill();
+      ctx.strokeStyle = "rgba(120,138,175,0.22)"; ctx.lineWidth=1; ctx.stroke();
+    }
     return;
   }
   const st = stageOf(d.charge);
+  const stageIndex = CFG.stages.indexOf(st);
   const [r,g,b] = st.col;
   ctx.save();
+  ctx.translate(d.x,d.y); ctx.rotate(heading);
   ctx.shadowColor = `rgba(${r},${g},${b},0.9)`;
   ctx.shadowBlur = 10 + 16*d.charge;
-  ctx.fillStyle = `rgb(${r},${g},${b})`;
-  ctx.beginPath(); ctx.arc(d.x,d.y,R,0,6.2832); ctx.fill();
+  if (ART.defenderStages[stageIndex]){
+    ctx.globalAlpha = 0.78 + 0.22*d.charge;
+    ctx.drawImage(ART.defenderStages[stageIndex], -10, -10, 20, 20);
+  } else {
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.beginPath(); ctx.arc(0,0,R,0,6.2832); ctx.fill();
+  }
+  ctx.fillStyle = `rgba(${r},${g},${b},${0.55 + 0.45*d.charge})`;
+  ctx.beginPath(); ctx.arc(0,0,R*0.42,0,6.2832); ctx.fill();
   ctx.restore();
 
   // charge arc — a shape channel so effectiveness reads without relying on hue

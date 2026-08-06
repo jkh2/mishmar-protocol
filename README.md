@@ -19,7 +19,7 @@ with no economy. It is one self-contained HTML file with no build step and no de
 
 ### ▶ [TRY DEMO HERE](https://jameskeithharwood.com/mishmar-protocol)
 
-Open `mishmar-protocol-prototype.html` in any modern browser. That's the whole install.
+Open `index.html` in any modern browser. That's the whole install.
 
 ### The loop, in one sentence
 
@@ -64,7 +64,7 @@ It falls every time another drone joins, and it keeps falling while you carry th
 - **The packet runs dry mid-carry.** The squad falls dim exactly where you're standing. No
   penalty is applied — you simply have to walk back to a battery and come get them.
 - **Powerless drones get knocked aside.** They can't be destroyed — the fleet is an asset you
-  keep. Charged drones lose charge on contact instead. The pyramid fabricates three more after
+  keep. Charged drones lose charge on contact instead. The pyramid fabricates one more after
   every wave, so the fleet grows slowly; what limits you is that one packet split across thirty drones
   isn't worth splitting.
 - **Batteries take damage.** A damaged battery rebuilds packets more slowly; a destroyed one
@@ -166,6 +166,15 @@ Honest ones, still unanswered:
   further apart — not a looser rule.
 - Does twelve faint drones **ever** beat four bright ones? If the answer is never, the split
   model is wrong and the game should go flat-rate.
-- At a six-second burn, is running the packet dry a **risk players choose to take**, or just a
+- At a twelve-second burn, is running the packet dry a **risk players choose to take**, or just a
   mistake they learn to avoid? If nobody ever gambles on one more drone, the burn is too short
   for the gamble to be real.
+
+---
+
+## Art
+
+The star field, defender body, and scout body are adapted at runtime from Kenney's
+[Space Shooter Redux](https://opengameart.org/content/space-shooter-redux) asset pack.
+The source assets are released under CC0 1.0; attribution is not required, but we credit
+Kenney with gratitude. The original license is preserved in `assets/kenney/LICENSE.txt`.
