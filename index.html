@@ -89,7 +89,7 @@ const CFG = {
 
   pointer: {
     energy:        3.0,   // total charge units in one battery packet
-    burnSeconds:   6.0,   // the packet dies in your hand — timer AND budget are one variable
+    burnSeconds:  12.0,   // the packet dies in your hand — timer AND budget are one variable
     magnetRadius:  115,
     captureRadius: 20,
     magnetAccel:   1050,  // capped accel, NOT teleport — the bend is unskippable
@@ -143,6 +143,7 @@ const CFG = {
     intervalDecay:0.9,
     interlude:  4.0,      // seconds between waves
     firstDelay: 9.0,      // quiet field before wave 1 — room to try the gesture
+    dronesPerWave: 1,     // the House fabricates replacements between waves
     // onboarding eases OFF over the first few waves rather than slowing the whole game
     easeWaves:  3,
     easeSpawn:  2.3,      // wave 1 spawn interval multiplier → 1.0 by wave 4
@@ -387,6 +388,13 @@ function updateWaves(dt){
   } else if (G.enemies.length === 0){
     G.inWave = false;
     G.interlude = CFG.wave.interlude;
+    // the pyramid puts three more on the field — they arrive dormant like everything else
+    for (let i=0;i<CFG.wave.dronesPerWave;i++){
+      const x = G.pyramid.x + rand(-70,70);
+      const y = GY - CFG.pyramid.height - rand(10,50);
+      G.drones.push(makeDrone(x,y));
+      burst(x, y, 9, [255,226,150]);
+    }
   }
 }
 
@@ -509,8 +517,10 @@ function updateEnemies(dt){
           e.hp -= 0.4;
           burst(d.x,d.y,3,[255,214,120]);
         } else {
-          d.dead = true;                       // incidental only — enemies never seek dim drones
-          burst(d.x,d.y,7,[120,140,180]);
+          // powerless drones are knocked aside, never lost — the fleet is an asset you keep
+          const dx = d.x-e.x, dy = d.y-e.y, len = Math.hypot(dx,dy) || 1;
+          d.vx = (dx/len)*140; d.vy = (dy/len)*140;
+          burst(d.x,d.y,3,[120,140,180]);
         }
       }
     }
@@ -798,7 +808,7 @@ function drawHUD(){
   line(22,38,  "PYRAMID",   `${Math.ceil(G.pyramid.hp)}%`, pk>0.5?"#d8a33a":pk>0.25?"#f0a83a":"#ff5f56");
   line(22,54,  "SWARM",     `${swarm}`, "#fff3cf");
   line(22,70,  "CHARGED",   `${charged}  ·  dim ${dim}`);
-  line(22,86,  "LOST",      `${G.lost}`, G.lost?"#ff8f88":"#8fa3c8");
+  line(22,86,  "FLEET",     `${G.drones.length}`, "#8fa3c8");
 
   // pointer energy bar
   const bx=W-186, by=22, bw=164, bh=9;
