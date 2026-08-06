@@ -112,6 +112,13 @@ const CFG = {
     wanderSpeed: 26,
     swarmSpring: 13,
     swarmDamp:   6.5,
+    // presentation only — no gameplay reads these. Powerless drones stay
+    // plain on purpose (dim means dim); this is for the ones actually doing
+    // something, so charged flight and firing read as more than a dot.
+    trailMinSpeed: 18,    // below this, motion is idle drift — no trail
+    trailSteps:    3,
+    trailSpacing:  0.028, // seconds of travel represented by each trail step
+    flashSeconds:  0.09,  // how long a shot brightens its drone
   },
 
   // brightness stages: [minCharge, damageMultiplier, colorStop]
@@ -1028,19 +1035,44 @@ function drawDrone(d){
   const st = stageOf(d.charge);
   const stageIndex = CFG.stages.indexOf(st);
   const [r,g,b] = st.col;
+  const D = CFG.drone;
+
+  // thruster trail — only for charged drones actually going somewhere.
+  // Reads speed straight off d.vx/vy rather than mode, so it works the same
+  // whether the motion came from magnetism, the swarm spring, or patrol drift.
+  const speed = Math.hypot(d.vx, d.vy);
+  if (speed > D.trailMinSpeed){
+    const dirAngle = Math.atan2(d.vy, d.vx);
+    const bx = -Math.cos(dirAngle), by = -Math.sin(dirAngle);
+    for (let i=1;i<=D.trailSteps;i++){
+      const back = speed * D.trailSpacing * i;
+      const fade = (1 - i/(D.trailSteps+1)) * (0.5 + 0.5*d.charge);
+      ctx.fillStyle = `rgba(${r},${g},${b},${(fade*0.4).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(d.x + bx*back, d.y + by*back, R*0.38*(1 - i*0.18), 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  // fire-flash — a shot just went out if the cooldown is still near its ceiling.
+  // Reuses d.cd rather than adding new per-drone state for a 0.09s effect.
+  const justFired = d.cd > (1/D.fireRate) - D.flashSeconds;
+
   ctx.save();
   ctx.translate(d.x,d.y); ctx.rotate(heading);
   ctx.shadowColor = `rgba(${r},${g},${b},0.9)`;
-  ctx.shadowBlur = 10 + 16*d.charge;
+  ctx.shadowBlur = (10 + 16*d.charge) * (justFired ? 1.6 : 1);
   if (ART.defenderStages[stageIndex]){
-    ctx.globalAlpha = 0.78 + 0.22*d.charge;
+    ctx.globalAlpha = justFired ? 1 : 0.78 + 0.22*d.charge;
     ctx.drawImage(ART.defenderStages[stageIndex], -10, -10, 20, 20);
   } else {
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.beginPath(); ctx.arc(0,0,R,0,6.2832); ctx.fill();
   }
-  ctx.fillStyle = `rgba(${r},${g},${b},${0.55 + 0.45*d.charge})`;
-  ctx.beginPath(); ctx.arc(0,0,R*0.42,0,6.2832); ctx.fill();
+  ctx.fillStyle = justFired
+    ? "rgba(255,255,255,0.92)"                       // a bright core is the recoil, not a new asset
+    : `rgba(${r},${g},${b},${0.55 + 0.45*d.charge})`;
+  ctx.beginPath(); ctx.arc(0,0, R*(justFired ? 0.52 : 0.42), 0,6.2832); ctx.fill();
   ctx.restore();
 
   // charge arc — a shape channel so effectiveness reads without relying on hue
