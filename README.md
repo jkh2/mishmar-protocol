@@ -33,7 +33,7 @@ energy survived the trip is split among however many drones you're still holding
 | Action | What it does |
 |---|---|
 | **Move the pointer** | Dim drones inside the magnetic radius bend toward you and are recruited when they arrive |
-| **Click a lit battery** | Draws one energy packet. The ring on your cursor is that packet burning down |
+| **Click a lit battery** | Draws one energy packet. Its pointer ring shrinks and its electronic tone falls as the packet burns down |
 | **Press and hold** | Commits the squad you've gathered. Gathering stops — this is your decision point |
 | **Drag** | Carries the squad. Energy is still burning, so distance costs power |
 | **Release** | Sets them down. They light up and patrol that sector on their own |
@@ -82,6 +82,10 @@ color vision: **brightness** (white-gold → gold → amber → faint) and a **c
 as a ring around each drone. Battery health is shown as pips rather than a color. Sectors held
 by patrolling squads draw a faint dashed circle.
 
+Pointer energy is also audible: drawing a packet starts a quiet synthesized tone whose pitch
+falls with the actual remaining charge. Deployment, depletion, pause, mute, restart, and game
+over all release the tone cleanly.
+
 ---
 
 ## Design rules
@@ -125,6 +129,7 @@ Everything is in the `CFG` object at the top of the file. No balance value lives
 | `stages` | 4 bands | Charge thresholds, damage multipliers, and colors |
 | `battery.cooldown` | `2.6` | Seconds to rebuild a packet |
 | `battery.damagedPenalty` | `2.2` | Cooldown multiplier at zero battery health |
+| `sound.chargeTone` | `135-620 Hz` | Synthesized pointer-energy pitch range, gain, attack, release, and glide |
 | `wave.easeWaves/easeSpawn/easeSpeed/easeCount` | `3 / 2.3 / 0.60 / 0.55` | The onboarding ramp |
 | `wave.dronesPerWave` | `1` | Replacements the pyramid fabricates after each wave |
 | `startingDrones` | `14` | Drones on the field at the start of a run |
@@ -145,7 +150,7 @@ Deliberately excluded, in this order:
   carrier/commander are designed but not implemented.
 - **Levels.** Waves currently escalate on a formula. The plan is ten acts of ten, with a boss
   and checkpoint every tenth level, driven by a configurable threat budget.
-- **Production pass.** Audio, music, settings, saves, accessibility options beyond the
+- **Production pass.** Final audio mix, music, settings, saves, accessibility options beyond the
   color-independent cues already in place.
 
 ## What comes after
@@ -184,3 +189,5 @@ Kenney with gratitude. The original license is preserved in `assets/kenney/LICEN
 Sound begins only after the first player gesture, in accordance with browser autoplay rules.
 Rapid combat sounds use small voice pools plus event throttling so a large squad reads as
 coordinated fire rather than clipping noise. Mute preference is preserved locally.
+The continuous pointer-energy tone is synthesized with Web Audio rather than sampled, so its
+pitch can track the packet continuously without introducing another licensed asset.
