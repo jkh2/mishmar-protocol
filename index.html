@@ -153,8 +153,22 @@ const CFG = {
   sound: {
     // One continuous synthesized tone makes the packet's remaining lifetime
     // audible. Exponential pitch mapping preserves musical intervals as it falls.
-    chargeTone: { minHz:135, maxHz:620, gain:0.11,
+    chargeTone: { minHz:68, maxHz:310, gain:0.11,
                   attack:0.035, release:0.08, glide:0.025 },
+
+    // Infrastructure breaches use three synthesized layers: a short high
+    // crack, a filtered debris body, and a falling sub-bass pressure wave.
+    // The pyramid carries more low-end and decay; a battery stays tighter.
+    impactExplosion: {
+      minGap:0.08,
+      noiseSeconds:2.0,
+      battery: { gain:0.82, bodyDuration:0.58, bodyGain:0.88,
+                 lowpassStartHz:1450, lowpassEndHz:230, crackGain:0.44,
+                 boomGain:0.72, boomStartHz:84, boomEndHz:36, boomDuration:0.64 },
+      pyramid: { gain:1.00, bodyDuration:0.84, bodyGain:1.00,
+                 lowpassStartHz:1050, lowpassEndHz:170, crackGain:0.56,
+                 boomGain:1.00, boomStartHz:96, boomEndHz:28, boomDuration:0.94 },
+    },
   },
 
   enemy: {
@@ -227,6 +241,8 @@ const SFX = {
   last: {},
   context: null,
   chargeTone: null,
+  explosionNoise: null,
+  lastExplosion: -Infinity,
 };
 const SFX_FILES = {
   shot:       "assets/kenney/audio/sfx_laser1.ogg",
@@ -272,6 +288,92 @@ function getAudioContext(){
   }
   if (SFX.context.state === "suspended") SFX.context.resume().catch(() => {});
   return SFX.context;
+}
+
+function getExplosionNoise(context){
+  const cached = SFX.explosionNoise;
+  if (cached && cached.sampleRate === context.sampleRate) return cached;
+
+  const seconds = CFG.sound.impactExplosion.noiseSeconds;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate*seconds), context.sampleRate);
+  const data = buffer.getChannelData(0);
+  let low = 0;
+  for (let i=0;i<data.length;i++){
+    const white = Math.random()*2-1;
+    low = (low + 0.025*white) / 1.025;
+    data[i] = clamp(white*0.72 + low*2.2, -1, 1);
+  }
+  SFX.explosionNoise = buffer;
+  return buffer;
+}
+
+function playImpactExplosion(kind){
+  if (SFX.muted) return;
+  const context = getAudioContext();
+  if (!context) return;
+
+  const allCfg = CFG.sound.impactExplosion;
+  const cfg = allCfg[kind];
+  const now = context.currentTime;
+  if (!cfg || now-SFX.lastExplosion < allCfg.minGap) return;
+  SFX.lastExplosion = now;
+
+  // A compressor lets the transient feel large without letting simultaneous
+  // layers hard-clip. This bus exists only for the lifetime of one explosion.
+  const bus = context.createGain();
+  const compressor = context.createDynamicsCompressor();
+  bus.gain.setValueAtTime(SFX.master*cfg.gain, now);
+  compressor.threshold.setValueAtTime(-18, now);
+  compressor.knee.setValueAtTime(18, now);
+  compressor.ratio.setValueAtTime(5, now);
+  compressor.attack.setValueAtTime(0.003, now);
+  compressor.release.setValueAtTime(0.24, now);
+  bus.connect(compressor); compressor.connect(context.destination);
+
+  const noise = getExplosionNoise(context);
+  const body = context.createBufferSource();
+  const bodyFilter = context.createBiquadFilter();
+  const bodyGain = context.createGain();
+  body.buffer = noise;
+  bodyFilter.type = "lowpass";
+  bodyFilter.Q.setValueAtTime(0.72, now);
+  bodyFilter.frequency.setValueAtTime(cfg.lowpassStartHz, now);
+  bodyFilter.frequency.exponentialRampToValueAtTime(cfg.lowpassEndHz, now+cfg.bodyDuration);
+  bodyGain.gain.setValueAtTime(0.0001, now);
+  bodyGain.gain.linearRampToValueAtTime(cfg.bodyGain, now+0.008);
+  bodyGain.gain.exponentialRampToValueAtTime(0.0001, now+cfg.bodyDuration);
+  body.connect(bodyFilter); bodyFilter.connect(bodyGain); bodyGain.connect(bus);
+  const bodyOffset = Math.random()*Math.max(0, noise.duration-cfg.bodyDuration-0.02);
+  body.start(now, bodyOffset, cfg.bodyDuration+0.01);
+
+  const crack = context.createBufferSource();
+  const crackFilter = context.createBiquadFilter();
+  const crackGain = context.createGain();
+  crack.buffer = noise;
+  crackFilter.type = "highpass";
+  crackFilter.frequency.setValueAtTime(kind === "pyramid" ? 1150 : 1550, now);
+  crackGain.gain.setValueAtTime(cfg.crackGain, now);
+  crackGain.gain.exponentialRampToValueAtTime(0.0001, now+0.075);
+  crack.connect(crackFilter); crackFilter.connect(crackGain); crackGain.connect(bus);
+  const crackOffset = Math.random()*Math.max(0, noise.duration-0.09);
+  crack.start(now, crackOffset, 0.09);
+
+  const boom = context.createOscillator();
+  const boomGain = context.createGain();
+  boom.type = "sine";
+  boom.frequency.setValueAtTime(cfg.boomStartHz, now);
+  boom.frequency.exponentialRampToValueAtTime(cfg.boomEndHz, now+cfg.boomDuration);
+  boomGain.gain.setValueAtTime(0.0001, now);
+  boomGain.gain.linearRampToValueAtTime(cfg.boomGain, now+0.012);
+  boomGain.gain.exponentialRampToValueAtTime(0.0001, now+cfg.boomDuration);
+  boom.connect(boomGain); boomGain.connect(bus);
+  boom.addEventListener("ended", () => {
+    for (const node of [body,bodyFilter,bodyGain,crack,crackFilter,crackGain,boom,boomGain,bus,compressor]){
+      try { node.disconnect(); } catch(_){}
+    }
+  }, { once:true });
+  boom.start(now);
+  boom.stop(now+cfg.boomDuration+0.02);
 }
 
 function chargeToneHz(charge){
@@ -421,6 +523,7 @@ cv.addEventListener("pointerleave", () => { G.pointer.inside = false; });
 
 cv.addEventListener("pointerdown", e => {
   e.preventDefault();
+  getAudioContext(); // unlock synthesized impact audio on the first game gesture
   if (G.over) { newGame(); return; }
   const p = G.pointer;
 
@@ -550,6 +653,7 @@ function impactAt(structure, x, y){
   G.shake = reduceMotion ? 0 : cfg.shake;
   if (onPyramid) shock(x, y, cfg.shockRadius, cfg.shockLife, cfg.col);
   else electricJolt(x, y, cfg.joltBolts, cfg.joltRadius, cfg.joltLife, cfg.col);
+  playImpactExplosion(onPyramid ? "pyramid" : "battery");
   playSfx("powerDown", cfg.sfxVolume, cfg.sfxRate, 0.10);
 }
 

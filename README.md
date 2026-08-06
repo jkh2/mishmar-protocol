@@ -129,7 +129,8 @@ Everything is in the `CFG` object at the top of the file. No balance value lives
 | `stages` | 4 bands | Charge thresholds, damage multipliers, and colors |
 | `battery.cooldown` | `2.6` | Seconds to rebuild a packet |
 | `battery.damagedPenalty` | `2.2` | Cooldown multiplier at zero battery health |
-| `sound.chargeTone` | `135-620 Hz` | Synthesized pointer-energy pitch range, gain, attack, release, and glide |
+| `sound.chargeTone` | `68-310 Hz` | Synthesized pointer-energy pitch range, gain, attack, release, and glide |
+| `sound.impactExplosion` | 3 layers | Synthesized crack, filtered debris body, and falling pressure boom for infrastructure breaches |
 | `wave.easeWaves/easeSpawn/easeSpeed/easeCount` | `3 / 2.3 / 0.60 / 0.55` | The onboarding ramp |
 | `wave.dronesPerWave` | `1` | Replacements the pyramid fabricates after each wave |
 | `startingDrones` | `14` | Drones on the field at the start of a run |
