@@ -1,7 +1,7 @@
 # Mishmar Protocol
 
 
-![Current Mishmar Protocol gameplay](gameplay.png)
+![Current Mishmar Protocol gameplay](image1.png)
 
 _The current playable browser build: the House, two power banks, a deployed four-drone
 sector, an incoming scout, and the layered space battlefield._
